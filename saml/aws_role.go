@@ -8,27 +8,34 @@ import (
 	"fmt"
 	"strings"
 	"encoding/xml"
-	"net/url"
 	"io/ioutil"
-	"bytes"
-	"net/http"
-	"github.com/PuerkitoBio/goquery"
 	"github.com/pkg/errors"
-	"bufio"
 	"os"
-	"strconv"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	"log"
+	"github.com/aws/aws-sdk-go/service/sts"
+	ini "gopkg.in/ini.v1"
+	"github.com/mitchellh/go-homedir"
+	"path/filepath"
 )
 
 type AWSAccount struct {
-	Name  string
-	Roles []*AWSRole
+	Id 			string
+	Name		string
+	Roles 		[]*AWSRole
 }
 
 // AWSRole aws role attributes
 type AWSRole struct {
-	RoleARN      string
-	PrincipalARN string
+	AccountId		string
 	Name         string
+	RoleARN      	string
+	PrincipalARN 	string
+}
+
+func (a AWSRole) String() string {
+	return fmt.Sprintf("[%s. %s, %s, %s]", a.Name, a.AccountId, a.RoleARN, a.PrincipalARN)
 }
 
 const (
@@ -37,15 +44,10 @@ const (
 	attributeTag          = "Attribute"
 )
 
-//ErrMissingElement is the error type that indicates an element and/or attribute is
-//missing. It provides a structured error that can be more appropriately acted
-//upon.
 type ErrMissingElement struct {
 	Tag, Attribute string
 }
 
-//ErrMissingAssertion indicates that an appropriate assertion element could not
-//be found in the SAML Response
 var (
 	ErrMissingAssertion = ErrMissingElement{Tag: assertionTag}
 )
@@ -57,56 +59,14 @@ func (e ErrMissingElement) Error() string {
 	return fmt.Sprintf("missing %s element", e.Tag)
 }
 
-// ParseAWSAccounts extract the aws accounts from the saml assertion
-func ParseAWSAccounts(samlAssertion string) ([]*AWSAccount, error) {
-	awsURL := "https://signin.aws.amazon.com/saml"
-
-	res, err := http.PostForm(awsURL, url.Values{"SAMLResponse": {samlAssertion}})
-	if err != nil {
-		return nil, errors.Wrap(err, "error retieving AWS login form")
-	}
-
-	data, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "error retieving AWS login body")
-	}
-
-	return ExtractAWSAccounts(data)
-}
-
-// ExtractAWSAccounts extract the accounts from the AWS html page
-func ExtractAWSAccounts(data []byte) ([]*AWSAccount, error) {
-	accounts := []*AWSAccount{}
-
-	doc, err := goquery.NewDocumentFromReader(bytes.NewBuffer(data))
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to build document from response")
-	}
-
-	doc.Find("fieldset > div.saml-account").Each(func(i int, s *goquery.Selection) {
-		account := new(AWSAccount)
-		account.Name = s.Find("div.saml-account-name").Text()
-		s.Find("label").Each(func(i int, s *goquery.Selection) {
-			role := new(AWSRole)
-			role.Name = s.Text()
-			role.RoleARN, _ = s.Attr("for")
-			account.Roles = append(account.Roles, role)
-		})
-		accounts = append(accounts, account)
-	})
-
-	return accounts, nil
-}
-
 // ExtractAwsRoles given an assertion document extract the aws roles
-func ExtractAwsRoles(data []byte) ([]string, error) {
+func ExtractAwsRoles(data []byte) ([]*AWSRole, error) {
 
-	awsroles := []string{}
 	r := Response{}
 
 	if err := xml.Unmarshal(data, &r); err != nil {
 		fmt.Printf("error: %r", err)
-		return awsroles, err
+		return nil, err
 	}
 
 	if r.Assertion == nil {
@@ -121,6 +81,7 @@ func ExtractAwsRoles(data []byte) ([]string, error) {
 		return nil, ErrMissingElement{Tag: attributeTag}
 	}
 
+	awsroles := []string{}
 	attributes := r.Assertion.AttributeStatement.Attributes
 	for _, attribute := range attributes {
 		if attribute.Name != "https://aws.amazon.com/SAML/Attributes/Role" {
@@ -132,11 +93,13 @@ func ExtractAwsRoles(data []byte) ([]string, error) {
 		}
 	}
 
-	return awsroles, nil
+	return parseAWSRoles(awsroles)
 }
 
-// ParseAWSRoles parses and splits the roles while also validating the contents
-func ParseAWSRoles(roles []string) ([]*AWSRole, error) {
+func parseAWSRoles(roles []string) ([]*AWSRole, error) {
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("No roles to assume, Please check you are permitted to assume roles for the AWS service")
+	}
 	awsRoles := make([]*AWSRole, len(roles))
 
 	for i, role := range roles {
@@ -177,66 +140,110 @@ func parseRole(role string) (*AWSRole, error) {
 		return nil, fmt.Errorf("Unable to locate RoleARN in: %s", role)
 	}
 
+	if splits := strings.SplitAfter(awsRole.RoleARN, "role/"); len(splits) == 2 {
+		awsRole.Name = splits[1]
+	}
+
+	if accounts := strings.Split(awsRole.PrincipalARN, ":"); len(accounts) == 6 && len(accounts[4]) == 12 {
+		awsRole.AccountId = accounts[4]
+	}
 	return awsRole, nil
-}
-// AssignPrincipals assign principal from roles
-func AssignPrincipals(awsRoles []*AWSRole, awsAccounts []*AWSAccount) {
-
-	awsPrincipalARNs := make(map[string]string)
-	for _, awsRole := range awsRoles {
-		awsPrincipalARNs[awsRole.RoleARN] = awsRole.PrincipalARN
-	}
-
-	for _, awsAccount := range awsAccounts {
-		for _, awsRole := range awsAccount.Roles {
-			awsRole.PrincipalARN = awsPrincipalARNs[awsRole.RoleARN]
-		}
-	}
-
 }
 
 // LocateRole locate role by name
-func LocateRole(awsRoles []*AWSRole, roleName string) (*AWSRole, error) {
-	for _, awsRole := range awsRoles {
-		if awsRole.RoleARN == roleName {
+func LocateRole(awsAccount *AWSAccount, roleName string) (*AWSRole, error) {
+	fmt.Println("Locate role ", roleName)
+	for _, awsRole := range awsAccount.Roles {
+		if roleName == awsRole.Name {
 			return awsRole, nil
 		}
 	}
 
-	return nil, fmt.Errorf("Supplied RoleArn not found in saml assertion: %s", roleName)
+	return nil, fmt.Errorf("Supplied Role not found in saml assertion: %s", roleName)
 }
 
-// PromptForAWSRoleSelection present a list of roles to the user for selection
-func PromptForAWSRoleSelection(accounts []*AWSAccount) (*AWSRole, error) {
-
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("Please choose the role you would like to assume: ")
-
+func AssignPrincipals(awsRoles []*AWSRole, awsAccount *AWSAccount) {
 	roles := []*AWSRole{}
-
-	for _, account := range accounts {
-		fmt.Println(account.Name)
-		for _, role := range account.Roles {
-			fmt.Println("[", len(roles), "]: ", role.Name)
-			fmt.Println()
+	for _, role := range awsRoles {
+		if awsAccount.Id == role.AccountId {
 			roles = append(roles, role)
 		}
 	}
-
-	fmt.Print("Selection: ")
-	selectedRoleIndex, _ := reader.ReadString('\n')
-
-	v, err := strconv.Atoi(strings.TrimSpace(selectedRoleIndex))
-
-	if err != nil {
-		return nil, fmt.Errorf("Unrecognised role index")
-	}
-
-	if v > len(roles) {
-		return nil, fmt.Errorf("You selected an invalid role index")
-	}
-
-	return roles[v], nil
+	awsAccount.Roles = roles
 }
 
+func GetCredentials(role *AWSRole, samlAssertion string) *sts.Credentials {
+	fmt.Println("Selected role:", role.RoleARN)
+
+	sess, err := session.NewSession()
+	if err != nil {
+		log.Fatal("failed to create session")
+		os.Exit(1)
+	}
+
+	svc := sts.New(sess)
+
+	duration := int64(3600);
+	params := &sts.AssumeRoleWithSAMLInput{
+		PrincipalArn:    &role.PrincipalARN, // Required
+		RoleArn:         &role.RoleARN,      // Required
+		SAMLAssertion:   &samlAssertion,     // Required
+		DurationSeconds: &duration,       // 1 hour
+	}
+
+	fmt.Println("Requesting AWS credentials using SAML assertion")
+
+	resp, err := svc.AssumeRoleWithSAML(params)
+	if err != nil {
+		log.Fatal("error retrieving STS credentials using SAML")
+	}
+
+	return resp.Credentials
+}
+
+func SaveCredentials(id, secret, token string) (string, error) {
+	fmt.Println("Saving Credentials")
+
+
+	filename, err := credentialsFile()
+	if err != nil {
+		return "", err
+	}
+	os.Setenv("AWS_ACCESS_KEY_ID", id)
+	os.Setenv("AWS_SECRET_ACCESS_KEY_ID", secret)
+	os.Setenv("AWS_SESSION_TOKEN", token)
+	os.Setenv("AWS_SECURITY_TOKEN", token)
+
+	fmt.Println("Saving config: ", filename)
+	config, err := ini.Load(filename)
+	if err != nil {
+		return "", errors.Wrap(err, "error saving credentials")
+	}
+
+	iniProfile, err := config.NewSection("default")
+	iniProfile.NewKey("aws_access_key_id", id)
+	iniProfile.NewKey("aws_secret_access_key_id", secret)
+	iniProfile.NewKey("aws_session_token", token)
+	iniProfile.NewKey("aws_security_token", token)
+	return filename, config.SaveTo(filename)
+}
+
+func credentialsFile() (string, error) {
+	home,_ := homedir.Dir()
+	awsDir := filepath.Join(home, ".aws")
+
+	if _, err := os.Stat(awsDir); os.IsNotExist(err) {
+		fmt.Println("Creating .aws directory ", awsDir)
+		os.MkdirAll(awsDir, 0600)
+	}
+
+	credentialsFile := filepath.Join(awsDir, "credentials")
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
+		fmt.Println("Saving credentialsFile ", credentialsFile)
+
+		if err = ioutil.WriteFile(credentialsFile, []byte("[default]"), 0600); err != nil {
+			return "", errors.New("can't write the credentials file")
+		}
+	}
+	return credentialsFile, nil
+}

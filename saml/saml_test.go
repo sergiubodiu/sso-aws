@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-
 var TimeNow = func() time.Time {
 	rv, _ := time.Parse("Mon Jan 2 15:04:05 MST 2006", "Thu Jul 27 02:54:39.386 UTC 2017")
 	return rv

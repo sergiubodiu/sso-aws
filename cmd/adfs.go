@@ -121,6 +121,11 @@ func (ac *ADFSClient) Authenticate(loginDetails *LoginDetails) (string, error) {
 		}
 	})
 
+	if samlAssertion == "" {
+		fmt.Println("Response did not contain a valid SAML assertion")
+		fmt.Println("Please check your username and password is correct")
+	}
+
 	return samlAssertion, nil
 }
 
