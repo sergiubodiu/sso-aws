@@ -114,7 +114,7 @@ func TestSaveCredentials(t *testing.T) {
 	assert.NotEmpty(t, filename)
 
 	assert.Equal(t, id, os.Getenv("AWS_ACCESS_KEY_ID"))
-	assert.Equal(t, secret, os.Getenv("AWS_SECRET_ACCESS_KEY_ID"))
+	assert.Equal(t, secret, os.Getenv("AWS_SECRET_ACCESS_KEY"))
 	assert.Equal(t, token, os.Getenv("AWS_SESSION_TOKEN"))
 	assert.Equal(t, token, os.Getenv("AWS_SECURITY_TOKEN"))
 }

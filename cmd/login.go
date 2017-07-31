@@ -145,9 +145,9 @@ func resolveRoleDetails(loginFlags *LoginFlags, samlAssertion string) (*saml.AWS
 
 	account := new(saml.AWSAccount)
 	account.Id = loginFlags.Account
+	saml.AssignPrincipals(awsRoles, account)
 
 	if loginFlags.Role != "" {
-	saml.AssignPrincipals(awsRoles, account)
 		return saml.LocateRole(account, loginFlags.Role)
 	}
 

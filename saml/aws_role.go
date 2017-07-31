@@ -210,7 +210,7 @@ func SaveCredentials(id, secret, token string) (string, error) {
 		return "", err
 	}
 	os.Setenv("AWS_ACCESS_KEY_ID", id)
-	os.Setenv("AWS_SECRET_ACCESS_KEY_ID", secret)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", secret)
 	os.Setenv("AWS_SESSION_TOKEN", token)
 	os.Setenv("AWS_SECURITY_TOKEN", token)
 
@@ -222,7 +222,7 @@ func SaveCredentials(id, secret, token string) (string, error) {
 
 	iniProfile, err := config.NewSection("default")
 	iniProfile.NewKey("aws_access_key_id", id)
-	iniProfile.NewKey("aws_secret_access_key_id", secret)
+	iniProfile.NewKey("aws_secret_access_key", secret)
 	iniProfile.NewKey("aws_session_token", token)
 	iniProfile.NewKey("aws_security_token", token)
 	return filename, config.SaveTo(filename)
