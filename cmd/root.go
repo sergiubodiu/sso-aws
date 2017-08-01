@@ -1,4 +1,4 @@
-// Copyright © 2017 Sergiu Bodiu
+:// Copyright © 2017 Sergiu Bodiu
 //
 // Use of this source code is governed by and MIT
 // license that can be found in the LICENSE file
@@ -20,7 +20,7 @@ var cfgFile string
 var RootCmd = &cobra.Command{
 	Use:   "sso-aws",
 	Short: "A command line tool to help with SAML access to the AWS token service.",
-	Long: `A command line tool to help with SAML access to the AWS token service.`,
+	Long: `ss-aws version 1.0.0 - command line tool to help with SAML access to the AWS token service.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	//	Run: func(cmd *cobra.Command, args []string) { },
@@ -44,9 +44,6 @@ func init() {
 		"config",
 		"",
 		"config file (default is $HOME/.sso-aws.yaml)")
-
-	// Cobra also supports local flags, which will only run when this action is called directly.
-	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -65,7 +62,7 @@ func initConfig() {
 	viper.AddConfigPath(home) 	// adding home directory as first search path
 	viper.SetConfigName(".sso-aws") // name of config file (without extension)
 	viper.AutomaticEnv() 				// read in environment variables that match
-	viper.SetEnvPrefix("aws")
+	viper.SetEnvPrefix("sso")
 
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())

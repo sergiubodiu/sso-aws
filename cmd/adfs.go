@@ -25,9 +25,16 @@ type ADFSClient struct {
 }
 
 // NewADFSClient create a new ADFS client
-func NewADFSClient(skipVerify bool) (*ADFSClient, error) {
+func NewADFSClient(skipVerify bool, ignoreProxy bool) (*ADFSClient, error) {
+        fmt.Printf("Configuring client with skip verify %v and proxy %v \n", skipVerify, ignoreProxy)
+
+	var proxy = http.ProxyFromEnvironment
+        if ignoreProxy {
+                proxy = nil
+        }
 
 	tr := &http.Transport{
+		Proxy: proxy,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: skipVerify, Renegotiation: tls.RenegotiateFreelyAsClient},
 	}
 
@@ -81,7 +88,7 @@ func (ac *ADFSClient) Authenticate(loginDetails *LoginDetails) (string, error) {
 		return samlAssertion, fmt.Errorf("unable to locate IDP authentication form submit URL")
 	}
 
-	//log.Printf("id authentication url: %s", authSubmitURL)
+	log.Printf("id authentication url: %s", authSubmitURL)
 
 	req, err := http.NewRequest("POST", authSubmitURL, strings.NewReader(authForm.Encode()))
 	if err != nil {
