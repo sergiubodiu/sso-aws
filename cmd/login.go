@@ -18,19 +18,6 @@ import (
 	"strings"
 )
 
-// LoginFlags login specific command flags
-type LoginFlags struct {
-	Account     string
-	Hostname   string
-	Username   string
-	Password   string
-	Role    string
-	SkipVerify bool
-	SkipPrompt bool
-}
-
-var lf LoginFlags
-
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Login to a SAML 2.0 IDP",
@@ -40,27 +27,26 @@ var loginCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(loginCmd)
+	flags := loginCmd.Flags()
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
+	flags.StringP("username", "u", "","The username used to login.")
+	flags.StringP("password", "p", "", "The password used to login.")
+	flags.StringP("account", "a", "", "The account to assume.")
+	flags.String("hostname", "", "The hostname of the SAML IDP server used to login.")
+	flags.String("role","", "The role to assume.")
+	flags.BoolP("skip-verify", "s", false, "Skip verification of server certificate.")
+	flags.Bool("ignore-proxy", false, "Override proxy configuration to no proxy")
+	flags.Bool("skip-prompt", false, "Skip prompting for parameters during login.")
 
-	loginCmd.Flags().StringVarP(&lf.Username, "username", "u", "","The username used to login.")
-	loginCmd.Flags().StringVarP(&lf.Password, "password", "p", "", "The password used to login.")
-	loginCmd.Flags().StringVarP(&lf.Account, "account", "a", "", "The account to assume.")
-	loginCmd.Flags().StringVar(&lf.Role, "role","", "The role to assume.")
-	loginCmd.Flags().StringVar(&lf.Hostname,"hostname", "", "The hostname of the SAML IDP server used to login.")
-	loginCmd.Flags().BoolVarP(&lf.SkipVerify, "skip-verify", "s", false, "Skip verification of server certificate.")
-	loginCmd.Flags().BoolVar(&lf.SkipPrompt, "skip-prompt", false, "Skip prompting for parameters during login.")
+	// from the command itself
+	viper.BindPFlags(flags)
 }
 
 // Login login to ADFS
 func loginRun(cmd *cobra.Command, args []string)  {
-	viper.GetString("datafile")
-
-	loginFlags := &lf
-
 	// fmt.Println("LookupCredentials", hostname)
-	loginDetails, err := resolveLoginDetails(loginFlags)
+	loginDetails, err := resolveLoginDetails(viper.GetString("username"),
+		viper.GetString("password"), viper.GetString("hostname"), viper.GetBool("skip-prompt"))
 	if err != nil {
 		fmt.Printf("%+v\n", err)
 		os.Exit(1)
@@ -68,7 +54,7 @@ func loginRun(cmd *cobra.Command, args []string)  {
 
 	fmt.Printf("Authenticating as %s to https://%s\n", loginDetails.Username,loginDetails.Hostname)
 
-	provider, err := NewADFSClient(loginFlags.SkipVerify)
+	provider, err := NewADFSClient(viper.GetBool("skip-verify"), viper.GetBool("ignore-proxy"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -80,10 +66,11 @@ func loginRun(cmd *cobra.Command, args []string)  {
 
 	samlAssertion, err := provider.Authenticate(loginDetails)
 	if err != nil {
-		log.Fatal("error authenticating to IdP")
+		fmt.Printf("%+v\n", err)
+		os.Exit(1)
 	}
 
-	role, err := resolveRoleDetails(loginFlags, samlAssertion)
+	role, err := resolveRoleDetails(viper.GetString("account"), viper.GetString("role"), samlAssertion)
 	if err != nil {
 		fmt.Printf("%+v\n", err)
 		os.Exit(1)
@@ -132,7 +119,7 @@ func promptForAWSRoleSelection(account *saml.AWSAccount) (*saml.AWSRole, error) 
 	return roles[v], nil
 }
 
-func resolveRoleDetails(loginFlags *LoginFlags, samlAssertion string) (*saml.AWSRole, error) {
+func resolveRoleDetails(accountId string, role string, samlAssertion string) (*saml.AWSRole, error) {
 	data, err := base64.StdEncoding.DecodeString(samlAssertion)
 	if err != nil {
 		log.Fatal("error decoding saml assertion")
@@ -144,11 +131,11 @@ func resolveRoleDetails(loginFlags *LoginFlags, samlAssertion string) (*saml.AWS
 	}
 
 	account := new(saml.AWSAccount)
-	account.Id = loginFlags.Account
+	account.Id = accountId
 	saml.AssignPrincipals(awsRoles, account)
 
-	if loginFlags.Role != "" {
-		return saml.LocateRole(account, loginFlags.Role)
+	if role != "" {
+		return saml.LocateRole(account, role)
 	}
 
 	//accounts, err := saml.ParseAWSAccounts(samlAssertion)
@@ -166,18 +153,18 @@ func resolveRoleDetails(loginFlags *LoginFlags, samlAssertion string) (*saml.AWS
 	}
 }
 
-func resolveLoginDetails(loginFlags *LoginFlags) (*LoginDetails, error) {
+func resolveLoginDetails(username, password, hostname string, skipPrompt bool) (*LoginDetails, error) {
 
 	// if skip prompt was passed just pass back the flag values
-	if loginFlags.SkipPrompt {
+	if skipPrompt {
 		return &LoginDetails{
-			Username: loginFlags.Username,
-			Password: loginFlags.Password,
-			Hostname: loginFlags.Hostname,
+			Username: username,
+			Password: password,
+			Hostname: hostname,
 		}, nil
 	}
 
-	return PromptForLoginDetails(loginFlags.Username, loginFlags.Hostname, loginFlags.Password)
+	return PromptForLoginDetails(username, hostname, password)
 }
 
 func stringValue(v *string) string {
