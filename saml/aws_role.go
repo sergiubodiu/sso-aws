@@ -10,14 +10,13 @@ import (
 	"encoding/xml"
 	"io/ioutil"
 	"github.com/pkg/errors"
-	"os"
-
 	"github.com/aws/aws-sdk-go/aws/session"
-	"log"
 	"github.com/aws/aws-sdk-go/service/sts"
 	ini "gopkg.in/ini.v1"
 	"github.com/mitchellh/go-homedir"
 	"path/filepath"
+	"log"
+	"os"
 )
 
 type AWSAccount struct {
@@ -178,7 +177,6 @@ func GetCredentials(role *AWSRole, samlAssertion string) *sts.Credentials {
 	sess, err := session.NewSession()
 	if err != nil {
 		log.Fatal("failed to create session")
-		os.Exit(1)
 	}
 
 	svc := sts.New(sess)
@@ -201,11 +199,10 @@ func GetCredentials(role *AWSRole, samlAssertion string) *sts.Credentials {
 	return resp.Credentials
 }
 
-func SaveCredentials(id, secret, token string) (string, error) {
+func SaveCredentials(id, secret, token, profile string) (string, error) {
 	fmt.Println("Saving Credentials")
 
-
-	filename, err := credentialsFile()
+	filename, err := credentialsFile(profile)
 	if err != nil {
 		return "", err
 	}
@@ -214,13 +211,12 @@ func SaveCredentials(id, secret, token string) (string, error) {
 	os.Setenv("AWS_SESSION_TOKEN", token)
 	os.Setenv("AWS_SECURITY_TOKEN", token)
 
-	fmt.Println("Saving config: ", filename)
 	config, err := ini.Load(filename)
 	if err != nil {
-		return "", errors.Wrap(err, "error saving credentials")
+		return "", errors.Wrap(err, "error loading credentials filename")
 	}
 
-	iniProfile, err := config.NewSection("default")
+	iniProfile, err := config.NewSection(profile)
 	iniProfile.NewKey("aws_access_key_id", id)
 	iniProfile.NewKey("aws_secret_access_key", secret)
 	iniProfile.NewKey("aws_session_token", token)
@@ -228,7 +224,7 @@ func SaveCredentials(id, secret, token string) (string, error) {
 	return filename, config.SaveTo(filename)
 }
 
-func credentialsFile() (string, error) {
+func credentialsFile(profile string) (string, error) {
 	home,_ := homedir.Dir()
 	awsDir := filepath.Join(home, ".aws")
 
@@ -241,7 +237,7 @@ func credentialsFile() (string, error) {
 	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
 		fmt.Println("Saving credentialsFile ", credentialsFile)
 
-		if err = ioutil.WriteFile(credentialsFile, []byte("[default]"), 0600); err != nil {
+		if err = ioutil.WriteFile(credentialsFile, []byte("["+ profile +"]"), 0600); err != nil {
 			return "", errors.New("can't write the credentials file")
 		}
 	}

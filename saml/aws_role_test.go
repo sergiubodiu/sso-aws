@@ -109,7 +109,7 @@ func TestSaveCredentials(t *testing.T) {
 	secret := "secret"
 	token := "token"
 
-	filename, err := SaveCredentials(id, secret, token)
+	filename, err := SaveCredentials(id, secret, token, "test")
 	assert.Nil(t, err)
 	assert.NotEmpty(t, filename)
 

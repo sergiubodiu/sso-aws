@@ -30,8 +30,9 @@ func init() {
 	flags := loginCmd.Flags()
 
 	flags.StringP("username", "u", "","The username used to login.")
-	flags.StringP("password", "p", "", "The password used to login.")
+	flags.StringP("profile", "p","default", "The AWS profile to save the short-term credentials")
 	flags.StringP("account", "a", "", "The account to assume.")
+	flags.String("password", "", "The password used to login.")
 	flags.String("hostname", "", "The hostname of the SAML IDP server used to login.")
 	flags.String("role","", "The role to assume.")
 	flags.BoolP("skip-verify", "s", false, "Skip verification of server certificate.")
@@ -78,13 +79,14 @@ func loginRun(cmd *cobra.Command, args []string)  {
 
 	credentials := saml.GetCredentials(role, samlAssertion)
 
-	filename, err := saml.SaveCredentials(stringValue(credentials.AccessKeyId), stringValue(credentials.SecretAccessKey), stringValue(credentials.SessionToken))
+	filename, err := saml.SaveCredentials(stringValue(credentials.AccessKeyId), stringValue(credentials.SecretAccessKey),
+		stringValue(credentials.SessionToken), viper.GetString("profile"))
 	if err != nil {
 		log.Fatal("error saving credentials ", err)
 	}
 
 	fmt.Println("")
-	fmt.Printf("Credential is saved to file %s under default profile\n", filename)
+	fmt.Printf("Credential is saved to file %s under %v profile\n", filename, viper.GetString("profile"))
 	fmt.Printf("Here are your short-term credentials. Expires: %v\n", credentials.Expiration.Local())
 }
 
